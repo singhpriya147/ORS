@@ -1,5 +1,25 @@
-import { useState, useEffect, use } from "react";
-// import { mockPath } from "./mockPath";
+import { useState, useEffect, useRef } from "react";
+// BLUETOOTH CONNECTION
+let bleCharacteristic = null;
+
+async function connectBluetooth() {
+  const device = await navigator.bluetooth.requestDevice({
+    // filters: [{ services: ["12345678-1234-1234-1234-123456789abc"] }],
+    filters: [{ name: "ESP32_BLE" }],
+    optionalServices: ["12345678-1234-1234-1234-123456789abc"],
+  });
+
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService(
+    "12345678-1234-1234-1234-123456789abc",
+  );
+
+  bleCharacteristic = await service.getCharacteristic(
+    "abcd1234-5678-1234-5678-123456789abc",
+  );
+
+  console.log("Bluetooth connected");
+}
 
 const THRESHOLD_VALUE = 5;
 const TURN_TYPE_MAP = {
@@ -130,27 +150,82 @@ const App = () => {
     const metersLeft = distance(userLocation, stepEndCoord);
     console.log("metersLeft", metersLeft);
 
-    setRemainingDist((prev) =>
-      prev === 0 ? metersLeft : Math.min(prev, metersLeft),
-    );
+    // setRemainingDist((prev) =>
+    //   prev === 0 ? metersLeft : Math.min(prev, metersLeft),
+    // );
+    setRemainingDist(metersLeft);
     if (metersLeft < THRESHOLD_VALUE) {
       setCurrentStepIndex((prev) => prev + 1);
     }
   }, [userLocation, currentStepIndex, data, steps]);
 
-  // useEffect(() => {
-  //   if (!data) return;
-  //   const geometry = data.features[0].geometry.coordinates;
-  //   const mockPath = geometry;
-  //   let i = 0;
-  //   const interval = setInterval(() => {
-  //     setUserLocation(mockPath[i]);
-  //     i++;
-  //     if (i >= mockPath.length) clearInterval(interval);
-  //   }, 1500);
+  const LAST_SENT_STEP = useRef(null);
+  const LAST_SENT_DIST = useRef(null);
 
-  //   return () => clearInterval(interval);
-  // }, [data]);
+  useEffect(() => {
+    if (!bleCharacteristic) return;
+
+    const step = steps[currentStepIndex];
+    if (!step) return;
+
+    const dist = Math.round(remainingDist);
+    const turn = TURN_TYPE_MAP[step.type];
+
+    if (
+      LAST_SENT_STEP.current === currentStepIndex &&
+      Math.abs(LAST_SENT_DIST.current - dist) < 5
+    ) {
+      return; // don't spam
+    }
+
+    LAST_SENT_STEP.current = currentStepIndex;
+    LAST_SENT_DIST.current = dist;
+
+    const msg = `TURN:${turn};DIST:${dist}`;
+    bleCharacteristic.writeValue(new TextEncoder().encode(msg));
+  }, [currentStepIndex, remainingDist]);
+  useEffect(() => {
+    const step = steps[currentStepIndex];
+    if (!step) return;
+
+    console.log(
+      "STEP",
+      currentStepIndex,
+      "TURN",
+      TURN_TYPE_MAP[step.type],
+      "DIST",
+      Math.round(remainingDist),
+    );
+  }, [currentStepIndex, remainingDist]);
+
+  // useEffect(() => {
+  //   if (!bleCharacteristic) return;
+  //   if (!steps[currentStepIndex]) return;
+  //   if (remainingDist <= 0) return;
+
+  //   const turnType = TURN_TYPE_MAP[steps[currentStepIndex].type];
+  //   const dist = Math.round(remainingDist);
+
+  //   const message = `TURN:${turnType};DIST:${dist}`;
+
+  //   const data = new TextEncoder().encode(message);
+  //   bleCharacteristic.writeValue(data);
+
+  //   console.log("Sent to device:", message);
+  // }, [currentStepIndex, remainingDist]);
+  useEffect(() => {
+    if (!data) return;
+    const geometry = data.features[0].geometry.coordinates;
+    const mockPath = geometry;
+    let i = 0;
+    const interval = setInterval(() => {
+      setUserLocation(mockPath[i]);
+      i++;
+      if (i >= mockPath.length) clearInterval(interval);
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [data]);
 
   return (
     <div>
@@ -183,6 +258,7 @@ const App = () => {
       {/* <div>
         <button onClick={() => handleSteps()}>Increase Step</button>
       </div> */}
+      <button onClick={connectBluetooth}>Connect Device</button>
     </div>
   );
 };
