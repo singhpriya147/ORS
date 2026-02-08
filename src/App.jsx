@@ -1,7 +1,7 @@
 import { useState, useEffect, use } from "react";
 // import { mockPath } from "./mockPath";
 
-const THRESHOLD_VALUE = 10;
+const THRESHOLD_VALUE = 5;
 const TURN_TYPE_MAP = {
   0: "left",
   1: "right",
